@@ -2,13 +2,16 @@
   'use strict';
   const vscode = acquireVsCodeApi();
   const previous = vscode.getState() || {};
-  let state = { shelf: [], current: undefined, hidden: false, settings: {} };
+  let state = { auth: { status: 'loggedOut' }, shelf: [], current: undefined, hidden: false, settings: {} };
   let sidebar = previous.sidebar ?? false;
   let busy = false;
   let restoring = false;
   let progressTimer;
   let lastAction;
   let searchResults;
+  let showLogin = false;
+  let authMessage = '';
+  let authActionPending = false;
   const app = document.getElementById('app');
   const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
   const send = message => vscode.postMessage(message);
@@ -22,7 +25,8 @@
     box.append(make('span', 'message', message));
     if (retry) {
       box.append(button('重试', () => { if (lastAction) send(lastAction); else act({ type: 'refresh' }); }));
-      box.append(button('连接 Chrome', () => send({ type: 'connect' })));
+      box.append(button('登录账号', () => { showLogin = true; renderAuthDialog(); }));
+      box.append(button('在 VS Code 内完成验证', () => send({ type: 'verify' })));
     }
     box.append(button('×', () => notice(''), '关闭提示'));
   }
@@ -50,12 +54,56 @@
       actions.append(button('隐藏', () => { reportProgress(); send({ type: 'hide' }); }, 'Esc / Ctrl+Alt+H（macOS: Cmd+Alt+H）'));
     }
     if (state.hidden) actions.append(button('继续', () => send({ type: 'resume' })));
-    actions.append(button('连接 Chrome', () => send({ type: 'connect' }), '在本机 Chrome 中完成登录或安全验证'));
+    const auth = state.auth || { status: 'loggedOut' };
+    actions.append(button(auth.status === 'loggedIn' ? `已登录 · ${auth.username || '文库吧账号'}` : '登录账号', () => { reportProgress(); showLogin = true; authMessage = ''; renderAuthDialog(); }));
+    if (auth.status === 'verification') actions.append(button('验证完成，继续', () => send({ type: 'verified' })));
+    if (auth.status === 'loggedIn') actions.append(button('退出登录', () => send({ type: 'logout' })));
+
     actions.append(button('设置', () => send({ type: 'settings' })));
     header.append(actions); app.append(header);
     const banner = make('div'); banner.id = 'notice'; banner.hidden = true; banner.setAttribute('aria-live', 'polite'); app.append(banner);
     if (state.hidden) renderMask(); else if (state.current) renderReader(); else renderHome();
     applySettings();
+    if (showLogin) renderAuthDialog();
+  }
+  function renderAuthDialog() {
+    document.getElementById('auth-dialog')?.remove();
+    if (!showLogin) return;
+    const dialog = make('dialog', 'auth-dialog'); dialog.id = 'auth-dialog';
+    dialog.setAttribute('aria-labelledby', 'auth-title');
+    const title = make('h2', '', '登录文库吧'); title.id = 'auth-title'; dialog.append(title);
+    const auth = state.auth || { status: 'loggedOut' };
+    const pending = authActionPending || ['loggingIn', 'restoring'].includes(auth.status);
+    const labels = { loggedOut: '未登录', restoring: '正在恢复会话…', loggingIn: '正在登录…', verification: '等待网站验证', loggedIn: `已登录 · ${auth.username || '文库吧账号'}`, expired: '登录会话已过期，请重新登录。' };
+    const status = make('p', 'comment', labels[auth.status] || '未登录'); status.setAttribute('role', 'status'); dialog.append(status);
+    if (authMessage) { const message = make('p', 'auth-message', authMessage); message.setAttribute('role', 'alert'); dialog.append(message); }
+    if (auth.status !== 'loggedIn') {
+      const form = make('form', 'auth-form');
+      const field = (label, type, name) => {
+        const l = make('label', '', label); const input = make('input'); input.type = type; input.name = name; input.required = true; input.maxLength = 30; input.autocomplete = 'off'; input.disabled = pending; l.append(input); form.append(l); return input;
+      };
+      const username = field('账号 / 邮箱', 'text', 'username');
+      const password = field('密码', 'password', 'password');
+      const submit = button(pending ? '请稍候…' : '登录', () => {}, '', 'primary'); submit.type = 'submit'; submit.disabled = pending; form.append(submit);
+      form.addEventListener('submit', event => {
+        event.preventDefault(); if (pending || !username.value.trim() || !password.value) return;
+        const credentials = { type: 'login', username: username.value.trim(), password: password.value };
+        password.value = ''; authMessage = ''; authActionPending = true;
+        send(credentials); delete credentials.password; renderAuthDialog();
+      });
+      dialog.append(form);
+      dialog.append(make('p', 'comment', '仅保存登录会话，不保存密码。会话过期后需要重新输入。'));
+      const verify = make('div', 'auth-actions');
+      const open = button('在 VS Code 内完成验证', () => { authMessage = ''; authActionPending = true; send({ type: 'verify' }); renderAuthDialog(); }); open.disabled = pending;
+      const done = button('验证完成，继续', () => { authMessage = ''; authActionPending = true; send({ type: 'verified' }); renderAuthDialog(); }); done.disabled = pending;
+      verify.append(open, done); dialog.append(verify);
+      dialog.append(make('p', 'comment', '需要验证码时，在 VS Code 网站页签中完成验证；也可在那里正常登录，然后返回继续。'));
+    }
+    dialog.append(button('清除登录会话', () => { authActionPending = true; send({ type: 'logout' }); renderAuthDialog(); }));
+    const close = button('关闭', () => { showLogin = false; dialog.close(); dialog.remove(); });
+    dialog.append(close);
+    dialog.addEventListener('cancel', () => { showLogin = false; dialog.querySelectorAll('input').forEach(input => { input.value = ''; }); });
+    app.append(dialog); dialog.showModal();
   }
   function renderMask() {
     const mask = make('div', 'mask');
@@ -90,7 +138,7 @@
     } else state.shelf.forEach(book => home.append(bookRow(book, true)));
     const hint = make('div', 'hint');
     hint.append(make('p', '', '// 阅读快捷键：Alt+← / Alt+→ 切换章节，Esc 隐藏正文。'));
-    hint.append(make('p', '', '// 连接 Chrome 后，请在浏览器中完成网站登录 / 验证，再回来重试。'));
+    hint.append(make('p', '', '// 可在阅读器内登录；需要网站验证时，在 VS Code 网站页签中完成。'));
     home.append(hint); app.append(home);
   }
   function bookRow(book, saved) {
@@ -144,7 +192,7 @@
     if (reader) { reader.style.fontSize = `${state.settings.fontSize || 14}px`; reader.querySelectorAll('.line').forEach(line => { line.style.lineHeight = String(state.settings.lineHeight || 1.9); }); }
   }
   window.addEventListener('keydown', e => {
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    if (document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
     if (e.key === 'Escape' && state.current && !state.hidden) { e.preventDefault(); reportProgress(); send({ type: 'hide' }); }
     if (e.altKey && state.current && !state.hidden && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1); }
   });
@@ -155,11 +203,29 @@
         busy = false;
         const before = state.current;
         if (before && (before.chapter.id !== m.current?.chapter.id || before.catalog.book.id !== m.current?.catalog.book.id)) vscode.setState({ sidebar });
-        state = m; render(); break;
+        state = m; if (state.auth?.status === 'loggedIn') showLogin = false; render(); break;
       }
       case 'busy': busy = true; notice(m.message); break;
-      case 'error': busy = false; notice(m.message, true, true); break;
-      case 'notice': notice(m.message); break;
+      case 'error': {
+        busy = false; authActionPending = false;
+        if (m.authError || ['login', 'verification'].includes(m.code)) { showLogin = true; authMessage = m.message; renderAuthDialog(); }
+        notice(m.message, true, !m.authError); break;
+      }
+      case 'auth': {
+        if (state.current && !state.hidden) saveUi(progressValue());
+        state.auth = m.auth;
+        if (['loggingIn', 'restoring'].includes(m.auth.status)) authActionPending = true;
+        else if (m.auth.status !== 'verification') authActionPending = false;
+        if (m.auth.status === 'loggedIn') { showLogin = false; authMessage = ''; }
+        render(); break;
+      }
+      case 'showLogin': showLogin = true; authMessage = ''; renderAuthDialog(); break;
+      case 'verificationComplete': {
+        busy = false; authActionPending = false; showLogin = !m.loggedIn;
+        authMessage = m.loggedIn ? '' : '验证已完成，请重新输入账号密码登录。';
+        renderAuthDialog(); notice(m.loggedIn ? '登录会话已确认，可以继续阅读或搜索。' : '验证已完成，请输入账号密码登录。'); break;
+      }
+      case 'notice': busy = false; authActionPending = false; if (showLogin) renderAuthDialog(); notice(m.message); break;
       case 'results': busy = false; searchResults = m.books; render(); break;
       case 'hidden': { busy = false; notice(''); reportProgress(); state.hidden = m.hidden; render(); break; }
       case 'settings': { const value = progressValue(); state.settings = m.settings; saveUi(value); render(); break; }

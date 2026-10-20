@@ -7,9 +7,13 @@ exports.run = async () => {
  assert.equal(ext.isActive, true, 'command automatically activates extension');
  const api = ext.exports;
  const commands = await vscode.commands.getCommands(true);
- for (const id of ['wenku8.open','wenku8.addBook','wenku8.connectBrowser','wenku8.hide']) assert.ok(commands.includes(id), id);
+ for (const id of ['wenku8.open','wenku8.addBook','wenku8.login','wenku8.logout','wenku8.hide']) assert.ok(commands.includes(id), id);
+ assert.ok(!commands.includes('wenku8.connectBrowser'), 'external Chrome command removed');
  await vscode.commands.executeCommand('wenku8.open');
  assert.equal(api.isOpen(), true);
+ assert.equal(api.authStatus(), 'loggedOut');
+ await vscode.commands.executeCommand('wenku8.login');
+ assert.equal(api.isOpen(), true, 'login command opens the reader');
  await vscode.commands.executeCommand('wenku8.hide');
  await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
  assert.equal(api.isOpen(), false);

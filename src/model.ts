@@ -20,7 +20,7 @@ export function bookId(input: string): number {
 export function catalogUrl(id: number): string { return `${ORIGIN}/novel/${Math.floor(id / 1000)}/${id}/index.htm`; }
 export function allowedUrl(input: string): URL {
   const url = new URL(input, ORIGIN);
-  if (url.origin !== ORIGIN || url.username || url.password || !/^\/(?:book\/\d+\.htm|novel\/\d+\/\d+\/(?:index|\d+)\.htm|so\.php|modules\/article\/search\.php|login\.php)$/.test(url.pathname)) throw new Error('已拒绝非文库吧阅读地址。');
+  if (url.origin !== ORIGIN || url.username || url.password || !/^\/(?:book\/\d+\.htm|novel\/\d+\/\d+\/(?:index|\d+)\.htm|so\.php|modules\/article\/search\.php|(?:login|logout|index)\.php)$/.test(url.pathname)) throw new Error('已拒绝非文库吧阅读地址。');
   return url;
 }
 export function imageUrl(input: string): string | undefined {

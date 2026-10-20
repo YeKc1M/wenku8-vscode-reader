@@ -1,51 +1,46 @@
 # Wenku8 · Code Reader
 
-在 VS Code 主编辑区阅读文库吧轻小说。标签页名为 `workspace.ts`，正文呈现为带行号的 TypeScript 字符串数组，默认收起目录、隐藏插图。背景、文字、输入框和目录使用 VS Code 主题变量，随 light / dark / 高对比度主题即时变化。
+在 VS Code 主编辑区阅读文库吧轻小说。标签页名为 `workspace.ts`，正文呈现为带行号的 TypeScript 字符串数组，默认收起目录、隐藏插图。背景、文字、输入框和目录跟随 VS Code 的 light / dark / 高对比度主题。
 
 ## 安装与使用
 
-1. 在 VS Code 扩展面板的 `…` 菜单选择 **从 VSIX 安装**，选中本项目生成的 `wenku8-vscode-reader-0.1.0.vsix`。
-2. 打开命令面板，执行 **Wenku8: 打开阅读器**。
-3. 输入书籍 ID（例如 `1`），或链接 `https://www.wenku8.net/book/1.htm`。也支持目录 / 章节链接，打开后恢复该书已保存的阅读位置。
-4. 遇到登录或安全验证提示时，点击 **连接 Chrome**，在弹出的 Chrome 中完成验证 / 登录，返回阅读器点击 **重试**。搜索书名需要网站登录。
+需要桌面版 **VS Code 1.142.0 或更新版本**。
 
-也可以运行：
+1. 在扩展面板的 `…` 菜单选择 **从 VSIX 安装**，选中 `wenku8-vscode-reader-0.2.0.vsix`。
+2. 执行 **Wenku8: 打开阅读器**，输入书籍 ID（例如 `1`），或 `https://www.wenku8.net/book/1.htm`。也支持目录 / 章节链接。
+3. 点击阅读器中的 **登录账号**，输入账号 / 邮箱和密码。也可执行 **Wenku8: 登录账号**。搜索书名需要登录。
+4. 如果网站要求安全验证，点击 **在 VS Code 内完成验证**。在 VS Code 打开的文库吧页签中完成验证，再回到阅读器点击 **验证完成，继续**，根据提示重新输入账号密码。需要额外验证码时，也可以在网站页签中正常登录，再返回继续。
+
+不需要安装、启动或连接外部 Chrome。验证页签使用 VS Code 内置浏览器；请保持内置 **JavaScript Debugger** 扩展启用。网站仍可能拒绝当前网络或浏览器环境；插件会显示验证提示，不会自动解验证码或反复提交密码。
+
+也可以安装打包文件：
 
 ```sh
-code --install-extension ./wenku8-vscode-reader-0.1.0.vsix
+code --install-extension ./wenku8-vscode-reader-0.2.0.vsix
 ```
+
+## 会话与退出登录
+
+- 密码仅用于当次提交，不写入扩展设置、书架、Webview 持久状态或重试记录。提交后密码输入框会清空。
+- 扩展直接请求时，Cookie 保存在 VS Code SecretStorage 中；登录表单选择网站提供的一个月会话有效期。会话失效后需要重新登录。
+- 网站验证后，后续请求继续使用同一 VS Code 内置浏览器会话。该浏览器的 Cookie 保存方式由 `workbench.browser.dataStorage` 控制；若你设置为 `ephemeral`，关闭页签或重启后可能需要重新验证 / 登录。插件不会修改这个全局设置。
+- 点击 **退出登录**、登录窗口中的 **清除登录会话**，或执行 **Wenku8: 退出登录**，可清除扩展保存的会话和本站浏览器 Cookie。书架与阅读进度保留。
+- 清除内置浏览器会话失败时会提示重试，并阻止继续使用残留会话；下次启动也会重试清理。
+
+网站会话是否持续有效由网站决定。恢复时会检查受保护页面，不会仅凭本地有 Cookie 就显示已登录。
 
 ## 阅读功能
 
 - 本地书架、分卷目录、上一章 / 下一章、按书名搜索。
 - 自动保存每本书最近章节及章节内滚动比例。重启后从书架继续阅读。
-- 点击 **隐藏** 或按 `Esc`，立即移除当前页面中的正文，显示一段普通工具函数；点击 **继续** 恢复原位置。
+- 点击 **隐藏** 或按 `Esc`，立即移除页面正文，显示普通工具函数；点击 **继续** 恢复。
 - `Alt+←` / `Alt+→` 切换章节；`Ctrl+Alt+H` 隐藏正文（macOS 为 `Cmd+Alt+H`）。
-- `wenku8.fontSize`、`wenku8.lineHeight` 调整阅读排版；`wenku8.showImages` 显示章节插图。
+- `wenku8.fontSize`、`wenku8.lineHeight` 调整排版；`wenku8.showImages` 显示章节插图。
 - 章节与目录仅做内存缓存，不提供整本批量下载或离线阅读。
 
-## 网络与 Chrome
+## 从 0.1 升级
 
-网站采用 GBK HTML 页面。公开目录和正文可以匿名访问，但是否触发安全验证取决于网站及网络环境；首页、排行榜和搜索在本次检查中跳转到登录页。
-
-`wenku8.transport` 有三个选项：
-
-| 值 | 行为 |
-| --- | --- |
-| `auto`（默认） | 直接请求；执行连接 Chrome 后，后续请求使用浏览器会话 |
-| `direct` | 始终由扩展直接请求网站 |
-| `browser` | 始终连接本机 Chrome |
-
-**连接 Chrome** 会启动一个使用独立用户目录的 Chrome（也支持常见安装路径的 Edge），通过本机 `127.0.0.1:9222` 的 Chrome DevTools Protocol 读取文库吧页面。独立目录不会继承你平时 Chrome 的登录状态，首次使用需要自行登录。扩展不会自动处理验证码，也不保存账号密码；登录状态由独立 Chrome 用户目录保存。书架及阅读进度存储在 VS Code 扩展全局状态中。
-
-可通过 `wenku8.browserPort` 更换端口；已有该端口的 Chrome 时复用其文库吧标签页。自动启动支持 macOS、Windows 的常见 Chrome / Edge 路径和 Linux 常见 Chrome / Chromium 路径；其他安装位置可以手动启动：
-
-```sh
-# 用你的 Chrome 可执行文件替换 google-chrome；用户目录必须是独立目录。
-google-chrome --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir=/path/to/wenku8-profile https://www.wenku8.net/book/1.htm
-```
-
-扩展关闭后不会退出浏览器，便于保留登录状态；可自行关闭窗口。浏览器模式面向本机桌面 VS Code，尚未验证 Remote SSH / WSL / 容器环境，不支持 vscode.dev。若设为 `direct`，连接浏览器不会覆盖你的设置，需要手动切换到 `auto` 或 `browser`。
+原有书架与阅读进度保留。`wenku8.transport`、`wenku8.browserPort` 和连接 Chrome 命令已移除，旧配置不再生效。旧 Chrome 独立目录不会导入新会话，也不会被插件删除，需要在阅读器内重新登录。插件不再启动外部浏览器。
 
 ## 开发与验证
 
@@ -57,6 +52,6 @@ npm run package
 
 按 `F5` 启动 Extension Development Host，在新窗口执行打开阅读器命令。
 
-`test/extensionHost.cjs` 可由 VS Code 的 `--extensionDevelopmentPath` / `--extensionTestsPath` 参数运行，验证激活、命令注册和面板生命周期。`node scripts/preview.cjs` 在 `http://127.0.0.1:4178` 提供使用虚构文字的界面测试环境；它不连接网站。
+`test/extensionHost.cjs` 可由 VS Code 的 `--extensionDevelopmentPath` / `--extensionTestsPath` 参数运行，验证激活、命令注册和面板生命周期。`node scripts/preview.cjs` 在 `http://127.0.0.1:4178` 提供使用虚构文字及模拟登录的界面环境，不连接网站；模拟密码 `wrong` 会显示登录失败，其他非空密码模拟成功。请勿在预览环境使用真实凭据。
 
-实现与逆向记录见仓库中的 `docs/site-analysis.md`。网站变更或内容下架可能导致读取失败，错误提示会保留重试及浏览器连接入口。登录后的搜索结果页尚未进行账号实测。
+实现与网站检查记录见 `docs/site-analysis.md`。已验证真实内置浏览器的验证页、登录表单和匿名目录 / 正文读取；有效账号登录及登录后搜索尚未实测。浏览器传输依赖当前 VS Code 内置调试器的 CDP 代理接口；未来 VS Code 变更可能需要适配。仅验证本机 macOS 桌面环境，不支持 vscode.dev，Remote SSH / WSL / 容器环境尚未验证。

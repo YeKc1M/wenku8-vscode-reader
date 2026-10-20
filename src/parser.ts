@@ -1,9 +1,10 @@
 import * as cheerio from 'cheerio';
+import { SiteError } from './network';
 import { Book, Catalog, Content, ORIGIN, allowedUrl, imageUrl } from './model';
 export function assertPage(html: string): void {
-  if (/cf-chl-|challenge-platform|Just a moment|正在进行安全验证/.test(html)) throw new Error('网站要求安全验证。请点击「连接 Chrome」，在浏览器中完成验证后重试。');
+  if (/cf-chl-|challenge-platform|Just a moment|正在进行安全验证|Attention Required! \| Cloudflare|Sorry, you have been blocked/.test(html)) throw new SiteError('verification', '网站要求安全验证。请点击「在 VS Code 内完成验证」，完成后继续。');
   const $ = cheerio.load(html);
-  if ($('form[action*="do=submit"] input[name="password"]').length || ($('input[name="password"]').length && !$('#content').length)) throw new Error('此页面需要登录。请连接 Chrome，在浏览器中登录文库吧后重试。');
+  if ($('form[action*="do=submit"] input[name="password"]').length || ($('input[name="password"]').length && !$('#content').length)) throw new SiteError('login', '此页面需要登录，请在阅读器内输入账号密码登录。');
 }
 export function parseBook(html: string, id: number): Book {
   assertPage(html);

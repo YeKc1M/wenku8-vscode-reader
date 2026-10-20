@@ -1,9 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const iconv = require('iconv-lite');
-const { WenkuClient } = require('../dist/client');
+const { client } = require('./helpers.cjs');
 const originalFetch = global.fetch;
-const client = () => new WenkuClient(() => ({ transport: 'direct', browserPort: 9222, browserConnected: false }));
 test('direct fetch decodes GBK and caches chapter results', async () => {
   let requests = 0;
   global.fetch = async () => { requests++; return new Response(iconv.encode('<div id="title">测试章节</div><div id="content">你好，世界。<br>下一段。</div>', 'gbk'), { headers: { 'content-type': 'text/html; charset=gbk' } }); };
@@ -18,9 +17,9 @@ test('redirect to unrelated host is rejected before issuing its request', async 
   global.fetch = async () => { requests++; return new Response('', { status: 302, headers: { location: 'https://evil.test/book/1.htm' } }); };
   try { await assert.rejects(client().read('https://www.wenku8.net/book/1.htm'), /非文库吧/); assert.equal(requests, 1); } finally { global.fetch = originalFetch; }
 });
-test('HTTP failures guide users to Chrome instead of showing challenge HTML', async () => {
+test('HTTP 403 offers verification inside VS Code', async () => {
   global.fetch = async () => new Response('blocked', { status: 403 });
-  try { await assert.rejects(client().read('https://www.wenku8.net/book/1.htm'), /HTTP 403.*连接 Chrome/); } finally { global.fetch = originalFetch; }
+  try { await assert.rejects(client().read('https://www.wenku8.net/book/1.htm'), /HTTP 403.*VS Code/); } finally { global.fetch = originalFetch; }
 });
 test('search uses GBK percent encoding and handles direct book redirects', async () => {
   let firstUrl;

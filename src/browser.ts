@@ -1,100 +1,113 @@
-import WebSocket from 'ws';
-import { spawn } from 'node:child_process';
-import { access, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { ORIGIN } from './model';
+import * as vscode from 'vscode';
+import { randomUUID } from 'node:crypto';
+import { CdpConnection } from './cdp';
+import { ORIGIN, allowedUrl } from './model';
+import { BrowserTransport, Page, RequestOptions, SiteError } from './network';
 
-async function localJson(port: number, path: string, method = 'GET'): Promise<any> {
-  const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, signal: AbortSignal.timeout(2500) });
-  if (!r.ok) throw new Error('Chrome 调试接口不可用。');
-  return r.json();
-}
-export class BrowserSession {
-  private socket?: WebSocket;
-  private port?: number;
-  private nextId = 0;
-  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export class BrowserSession implements BrowserTransport {
+  private connection?: CdpConnection;
+  private root?: vscode.DebugSession;
   private connecting?: Promise<void>;
-  private send(method: string, params: object = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const id = ++this.nextId;
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('浏览器请求超时，请在 Chrome 中完成验证后重试。')); }, 25000);
-      this.pending.set(id, { resolve, reject, timer });
-      this.socket!.send(JSON.stringify({ id, method, params }), err => { if (err) { clearTimeout(timer); this.pending.delete(id); reject(err); } });
-    });
-  }
-  private async attach(port: number): Promise<void> {
-    if (this.socket?.readyState === WebSocket.OPEN && this.port === port) return;
-    this.dispose();
-    const pages = await localJson(port, '/json/list');
-    let page = pages.find((p: any) => p.type === 'page' && typeof p.url === 'string' && p.url.startsWith(ORIGIN + '/'));
-    if (!page) page = await localJson(port, `/json/new?${encodeURIComponent(ORIGIN + '/book/1.htm')}`, 'PUT');
-    const endpoint = new URL(page.webSocketDebuggerUrl);
-    if (!['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname) || endpoint.protocol !== 'ws:') throw new Error('Chrome 调试接口必须位于本机。');
-    endpoint.hostname = '127.0.0.1';
-    const socket = new WebSocket(endpoint.href, { handshakeTimeout: 5000, maxPayload: 16 * 1024 * 1024 });
-    this.socket = socket;
-    this.port = port;
-    socket.on('message', raw => {
-      const response = JSON.parse(raw.toString());
-      const p = this.pending.get(response.id);
-      if (!p) return;
-      clearTimeout(p.timer); this.pending.delete(response.id);
-      if (response.error) p.reject(new Error(response.error.message)); else p.resolve(response.result);
-    });
-    const disconnected = () => {
-      if (this.socket !== socket) return;
-      for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('Chrome 连接已断开，请重新连接。')); }
-      this.pending.clear();
-    };
-    socket.on('close', disconnected);
-    socket.on('error', disconnected);
-    await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
-    for (let i = 0; i < 30; i++) {
-      const r = await this.send('Runtime.evaluate', { expression: 'location.origin', returnByValue: true });
-      if (r.result?.value === ORIGIN) return;
-      await new Promise(r => setTimeout(r, 200));
-    }
-    throw new Error('请等待 Chrome 打开文库吧页面后重试。');
-  }
-  async connect(port: number): Promise<void> {
-    if (!this.connecting) this.connecting = this.attach(port).finally(() => { this.connecting = undefined; });
+  private epoch = 0;
+  private disposables: vscode.Disposable[] = [];
+  get active(): boolean { return !!this.connection; }
+  async openVerification(url = `${ORIGIN}/login.php`): Promise<void> {
+    allowedUrl(url);
+    if (this.connection) { await this.connection.send('Page.navigate', { url }); return; }
+    if (!this.connecting) this.connecting = this.open(url).finally(() => { this.connecting = undefined; });
     return this.connecting;
   }
-  async read(url: string, port: number): Promise<{ html: string; url: string }> {
-    await this.connect(port);
-    const expression = String.raw`(async()=>{if(location.origin!==${JSON.stringify(ORIGIN)})throw new Error('请在 Chrome 中打开文库吧页面');const r=await fetch(${JSON.stringify(url)},{credentials:'include',signal:AbortSignal.timeout(20000)});const b=await r.arrayBuffer();if(b.byteLength>8388608)throw new Error('页面过大');const bytes=new Uint8Array(b);const head=new TextDecoder().decode(bytes.slice(0,2048));const utf=/charset\s*=\s*["']?utf-?8/i.test(r.headers.get('content-type')+' '+head);return {html:new TextDecoder(utf?'utf-8':'gbk').decode(bytes),url:r.url,status:r.status};})()`;
-    const result = await this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description?.split('\n')[0] ?? '浏览器读取失败，请完成登录或验证后重试。');
-    const value = result.result?.value;
-    if (!value || typeof value.html !== 'string') throw new Error('浏览器未返回页面。');
-    if (value.status >= 400) throw new Error(`网站返回 HTTP ${value.status}，请在 Chrome 中完成验证后重试。`);
-    return value;
+  private async open(url: string): Promise<void> {
+    this.disposeListeners();
+    const epoch = this.epoch, token = randomUUID();
+    let child: vscode.DebugSession | undefined;
+    const starts = vscode.debug.onDidStartDebugSession(session => {
+      if (session.configuration.__wenku8Session === token && !session.parentSession) this.root = session;
+      if (this.root && session.parentSession?.id === this.root.id) child = session;
+    });
+    const ends = vscode.debug.onDidTerminateDebugSession(session => {
+      if (session.id === this.root?.id || session.id === child?.id) { this.connection?.dispose(); this.connection = undefined; }
+    });
+    this.disposables.push(starts, ends);
+    try {
+      const ok = await vscode.debug.startDebugging(undefined, {
+        type: 'editor-browser', request: 'launch', name: 'Wenku8 · 网站验证', url,
+        __wenku8Session: token, sourceMaps: false, trace: false, timeout: 20000, internalConsoleOptions: 'neverOpen'
+      }, { suppressDebugStatusbar: true, suppressDebugToolbar: true, suppressDebugView: true, suppressSaveBeforeStart: true });
+      if (!ok) throw new Error('无法打开 VS Code 内置浏览器。请使用桌面版 VS Code 1.142 或更新版本，并启用内置 JavaScript Debugger。');
+      const deadline = Date.now() + 20000;
+      while (!child && Date.now() < deadline && epoch === this.epoch) await delay(100);
+      if (epoch !== this.epoch) throw new SiteError('cancelled', '请求已取消。');
+      if (!child) throw new Error('内置浏览器启动超时，请重试。');
+      const connection = new CdpConnection();
+      await connection.connect(await child.customRequest('requestCDPProxy'));
+      if (epoch !== this.epoch) { connection.dispose(); throw new SiteError('cancelled', '请求已取消。'); }
+      this.connection = connection;
+      connection.onClose = () => { if (this.connection === connection) this.connection = undefined; };
+      // Stop extension requests and their redirects before sending data to a foreign address.
+      const requests = new Set<string>();
+      connection.onEvent = (method, params) => {
+        if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') { requests.delete(params.requestId); return; }
+        if (method !== 'Fetch.requestPaused') return;
+        const own = Object.keys(params.request.headers).some(k => k.toLowerCase() === 'x-wenku8-reader') || requests.has(params.networkId);
+        let permitted = true;
+        if (own) { if (params.networkId) requests.add(params.networkId); try { allowedUrl(params.request.url); } catch { permitted = false; } }
+        void connection.send(permitted ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId: params.requestId, ...(!permitted ? { errorReason: 'BlockedByClient' } : {}) }).catch(() => {});
+      };
+      await connection.send('JsDebug.subscribe', { events: ['Fetch.requestPaused', 'Network.loadingFinished', 'Network.loadingFailed'] });
+      await connection.send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Fetch', requestStage: 'Request' }] });
+    } catch (error) {
+      this.connection?.dispose(); this.connection = undefined;
+      if (this.root) await vscode.debug.stopDebugging(this.root);
+      this.root = undefined; this.disposeListeners(); throw error;
+    } finally { starts.dispose(); }
   }
+  async request(url: string, options: RequestOptions = {}): Promise<Page> {
+    allowedUrl(url);
+    const connection = this.connection;
+    if (!connection) throw new SiteError('verification', '请在 VS Code 内打开网站验证页，完成后点击「验证完成，继续」。');
+    const epoch = this.epoch;
+    // Use the local CDP channel instead of putting credentials in the debug console.
+    const expression = `(async()=>{
+      if(location.origin!==${JSON.stringify(ORIGIN)})throw new Error('origin');
+      const controller=new AbortController();(globalThis.__wenku8Requests??=new Set()).add(controller);
+      try{
+        const r=await fetch(${JSON.stringify(url)},{method:${JSON.stringify(options.method ?? 'GET')},${options.body === undefined ? '' : `body:${JSON.stringify(options.body)},`}credentials:'include',cache:'no-store',redirect:'follow',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)]),headers:{'X-Wenku8-Reader':'1',${options.body === undefined ? '' : "'Content-Type':'application/x-www-form-urlencoded',"}'Accept':'text/html'}});
+        const reader=r.body?.getReader();const chunks=[];let size=0;
+        try{if(reader)for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>8388608)throw new Error('size');chunks.push(value);}}finally{await reader?.cancel().catch(()=>{});}
+        const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
+        const utf=/charset\\s*=\\s*["']?utf-?8/i.test(r.headers.get('content-type')+' '+new TextDecoder().decode(bytes.slice(0,2048)));
+        return {html:new TextDecoder(utf?'utf-8':'gbk').decode(bytes),url:r.url,status:r.status};
+      }finally{globalThis.__wenku8Requests.delete(controller);}
+    })()`;
+    const result = await connection.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (epoch !== this.epoch) throw new SiteError('cancelled', '请求已取消。');
+    if (result.exceptionDetails) throw new Error('内置浏览器读取失败：请确认验证已完成、页面未跳转到其他网站，然后重试。');
+    const value = result.result?.value as Page | undefined;
+    if (!value || typeof value.html !== 'string' || typeof value.url !== 'string') throw new Error('内置浏览器未返回页面。');
+    allowedUrl(value.url); return value;
+  }
+  async cancel(): Promise<void> {
+    this.epoch++;
+    await this.connection?.send('Runtime.evaluate', { expression: 'globalThis.__wenku8Requests?.forEach(c=>c.abort());globalThis.__wenku8Requests?.clear();', returnByValue: true }).catch(() => {});
+  }
+  async clearCookies(): Promise<void> {
+    // Reopen a closed tab to clear this site's persistent cookies too.
+    if (!this.connection) await this.openVerification();
+    await this.cancel();
+    const result = await this.connection!.send('Network.getCookies', { urls: [`${ORIGIN}/`, `${ORIGIN}/login.php`, `${ORIGIN}/modules/article/search.php`] });
+    for (const cookie of result.cookies ?? []) {
+      if (!['wenku8.net', '.wenku8.net', 'www.wenku8.net', '.www.wenku8.net'].includes(cookie.domain)) continue;
+      await this.connection!.send('Network.deleteCookies', { name: cookie.name, domain: cookie.domain, path: cookie.path });
+    }
+    await this.connection!.send('Page.navigate', { url: `${ORIGIN}/login.php` });
+  }
+  private disposeListeners(): void { for (const disposable of this.disposables) disposable.dispose(); this.disposables = []; }
   dispose(): void {
-    this.socket?.close(); this.socket = undefined;
-    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('浏览器连接已关闭。')); }
-    this.pending.clear();
+    this.epoch++; this.connection?.dispose(); this.connection = undefined;
+    const root = this.root; this.root = undefined;
+    if (root) void vscode.debug.stopDebugging(root);
+    this.disposeListeners();
   }
-}
-export async function launchBrowser(port: number, storage: string): Promise<void> {
-  try { await localJson(port, '/json/version'); return; } catch { /* start a dedicated browser profile */ }
-  const candidates = process.platform === 'darwin'
-    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
-    : process.platform === 'win32'
-      ? [join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'), join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'), join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Microsoft/Edge/Application/msedge.exe')]
-      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/opt/google/chrome/chrome'];
-  let executable: string | undefined;
-  for (const candidate of candidates) { try { await access(candidate); executable = candidate; break; } catch { /* next */ } }
-  if (!executable) throw new Error('未找到 Chrome。请安装 Chrome，或手动以 --remote-debugging-port 启动后重新连接。');
-  await mkdir(storage, { recursive: true });
-  const child = spawn(executable, [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1', `--user-data-dir=${join(storage, 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check', `${ORIGIN}/book/1.htm`], { detached: true, stdio: 'ignore' });
-  let spawnError: Error | undefined;
-  child.on('error', err => { spawnError = err; });
-  child.unref();
-  for (let i = 0; i < 40; i++) {
-    if (spawnError) throw spawnError;
-    try { await localJson(port, '/json/version'); return; } catch { await new Promise(r => setTimeout(r, 250)); }
-  }
-  throw new Error('Chrome 启动超时，请检查调试端口是否被占用。');
 }
