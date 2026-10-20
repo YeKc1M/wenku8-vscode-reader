@@ -1,0 +1,60 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 0; background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, #d4d4d4); font: var(--vscode-editor-font-size, 14px)/1.6 var(--vscode-editor-font-family, Consolas, monospace); }
+button, input, select { font: inherit; }
+button { cursor: pointer; color: var(--vscode-foreground, #ccc); background: transparent; border: 1px solid transparent; padding: 4px 9px; border-radius: 3px; }
+button:hover { background: var(--vscode-toolbar-hoverBackground, #80808022); }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007acc); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: default; }
+input, select { color: var(--vscode-input-foreground, #ccc); background: var(--vscode-input-background, #303030); border: 1px solid var(--vscode-input-border, transparent); padding: 7px 10px; border-radius: 3px; min-width: 0; }
+input { flex: 1; }
+.primary { background: var(--vscode-button-background, #007acc); color: var(--vscode-button-foreground, #fff); }
+.primary:hover { background: var(--vscode-button-hoverBackground, #0062a3); }
+header { min-height: 38px; border-bottom: 1px solid var(--vscode-panel-border, #80808033); display: flex; align-items: center; justify-content: space-between; padding: 3px 16px; gap: 8px; color: var(--vscode-descriptionForeground, #999); font-size: 12px; }
+.actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.breadcrumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment { color: var(--vscode-descriptionForeground, #888); }
+.keyword { color: var(--vscode-symbolIcon-keywordForeground, var(--vscode-textLink-foreground, #569cd6)); }
+.string { color: var(--vscode-debugTokenExpression-string, var(--vscode-editor-foreground, #ce9178)); }
+.function { color: var(--vscode-symbolIcon-functionForeground, var(--vscode-textLink-foreground, #dcdcaa)); }
+.home { max-width: 900px; margin: 7vh auto; padding: 0 32px 50px; }
+.home h1 { font-size: 23px; font-weight: 400; margin: 0 0 10px; }
+.home p { margin: 8px 0; }
+.forms { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 26px 0 32px; }
+form label { display: block; font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 8px; }
+.inputrow { display: flex; gap: 8px; }
+.section-title { text-transform: uppercase; letter-spacing: 1px; font-size: 11px; color: var(--vscode-descriptionForeground); padding-bottom: 8px; border-bottom: 1px solid var(--vscode-panel-border, #80808033); }
+.book { display: flex; align-items: center; border-bottom: 1px solid var(--vscode-panel-border, #80808022); }
+.book .open-book { text-align: left; flex: 1; min-width: 0; padding: 14px 4px; }
+.book small { display: block; color: var(--vscode-descriptionForeground); font-size: 11px; padding-top: 3px; }
+.empty { color: var(--vscode-descriptionForeground); padding: 20px 0; font-size: 12px; }
+.hint { margin-top: 32px; color: var(--vscode-descriptionForeground); font-size: 12px; }
+.hint kbd { border: 1px solid var(--vscode-panel-border, #80808055); padding: 1px 5px; border-radius: 3px; }
+#notice { padding: 9px 18px; font-size: 12px; background: var(--vscode-editorWidget-background, #333); border-bottom: 1px solid var(--vscode-panel-border); display: flex; align-items: center; gap: 8px; }
+#notice[hidden], [hidden] { display: none !important; }
+#notice .message { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+#notice.error { color: var(--vscode-errorForeground, #f48771); }
+.workspace { display: flex; height: calc(100vh - 39px); }
+body.has-notice .workspace { height: calc(100vh - 100px); }
+aside { width: 260px; min-width: 180px; border-right: 1px solid var(--vscode-panel-border, #80808033); background: var(--vscode-sideBar-background, var(--vscode-editor-background)); overflow: auto; padding: 12px 8px; font-size: 12px; }
+aside .section-title { padding: 0 10px 12px; border: 0; }
+details { padding: 2px 0; }
+summary { cursor: pointer; padding: 6px 2px; color: var(--vscode-descriptionForeground); }
+.chapter { display: block; width: 100%; text-align: left; padding: 5px 8px 5px 19px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chapter.active { color: var(--vscode-list-activeSelectionForeground, #fff); background: var(--vscode-list-activeSelectionBackground, #094771); }
+.editor { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.reader { overflow: auto; flex: 1; padding: 18px 0 100px; scroll-behavior: auto; }
+.line { display: grid; grid-template-columns: 65px minmax(0, 1fr); padding-right: 50px; line-height: 1.9; }
+.line:hover { background: var(--vscode-editor-lineHighlightBackground, #80808008); }
+.number { user-select: none; text-align: right; padding-right: 24px; color: var(--vscode-editorLineNumber-foreground, #858585); font-size: inherit; }
+.code { white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 20px; }
+.prose .code { padding-left: 36px; }
+.prose .code::before { content: '"'; opacity: .5; }
+.prose .code::after { content: '",'; opacity: .5; }
+.illustration { display: block; max-width: min(100%, 650px); margin: 16px 0; }
+footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--vscode-panel-border, #80808033); padding: 4px 14px; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.mask { padding: 24px 0; }
+.mask .line { margin: 4px 0; }
+@media (max-width: 780px) { .forms { grid-template-columns: 1fr; } aside { width: 205px; } .line { grid-template-columns: 45px minmax(0,1fr); padding-right: 18px; } .number { padding-right: 12px; } }
+@media (max-width: 560px) { aside { position: absolute; z-index: 2; height: calc(100% - 80px); width: 240px; box-shadow: 4px 0 12px #0003; } header { padding: 3px 8px; } .breadcrumb { display: none; } .home { padding: 0 18px; } }
+@media (forced-colors: active) { button, input, select, .chapter.active { border: 1px solid ButtonText; } }

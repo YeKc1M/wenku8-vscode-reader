@@ -1,0 +1,107 @@
+{
+  "name": "wenku8-vscode-reader",
+  "displayName": "Wenku8 · Code Reader",
+  "description": "在编辑区用代码风格阅读文库吧轻小说，自动跟随 VS Code 主题。",
+  "version": "0.1.0",
+  "publisher": "local-reader",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "npm run compile && node --test test/*.test.cjs",
+    "package": "vsce package --allow-missing-repository",
+    "vscode:prepublish": "npm run compile"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "wenku8.open",
+        "title": "Wenku8: 打开阅读器"
+      },
+      {
+        "command": "wenku8.addBook",
+        "title": "Wenku8: 添加书籍链接或 ID"
+      },
+      {
+        "command": "wenku8.connectBrowser",
+        "title": "Wenku8: 连接 Chrome（登录 / 安全验证）"
+      },
+      {
+        "command": "wenku8.hide",
+        "title": "Wenku8: 隐藏正文"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "wenku8.hide",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "activeWebviewPanelId == 'wenku8.reader'"
+      }
+    ],
+    "configuration": {
+      "title": "Wenku8 Reader",
+      "properties": {
+        "wenku8.transport": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "direct",
+            "browser"
+          ],
+          "default": "auto",
+          "description": "auto 优先直接请求；连接 Chrome 后使用浏览器会话。browser 始终使用本机 Chrome。"
+        },
+        "wenku8.browserPort": {
+          "type": "number",
+          "default": 9222,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "本机 Chrome 调试端口，仅连接 127.0.0.1。"
+        },
+        "wenku8.fontSize": {
+          "type": "number",
+          "default": 14,
+          "minimum": 10,
+          "maximum": 28,
+          "description": "阅读字号。"
+        },
+        "wenku8.lineHeight": {
+          "type": "number",
+          "default": 1.9,
+          "minimum": 1.2,
+          "maximum": 3,
+          "description": "阅读行高。"
+        },
+        "wenku8.showImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "显示章节插图（默认隐藏以保持代码外观）。"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "iconv-lite": "^0.6.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.96.0",
+    "@types/ws": "^8.5.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.7.0"
+  },
+  "extensionKind": [
+    "ui"
+  ]
+}
