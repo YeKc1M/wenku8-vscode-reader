@@ -60,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
   async function openVerification() {
     await sessionReady;
     await client.openVerification();
-    post({ type: 'notice', message: '请在 VS Code 网站验证页中完成验证，然后返回阅读器点击「验证完成，继续」。密码不会被保存，需要时请重新输入。' });
+    post({ type: 'notice', message: '请在独立的 VS Code 验证窗口中完成验证或登录，再返回阅读器点击「验证完成，继续」。之后可手动最小化验证窗口；请勿关闭，以保持阅读连接。密码不会被保存。' });
   }
   async function logout() {
     ++requestVersion;
@@ -135,7 +135,7 @@ export function activate(context: vscode.ExtensionContext) {
           case 'logout': await logout(); break;
           case 'verify': try { await openVerification(); } catch (e) { error(e, true); } break;
           case 'verified': {
-            try { await sessionReady; await client.continueVerification(); sendState(); post({ type: 'verificationComplete', loggedIn: client.auth.status === 'loggedIn' }); }
+            try { await sessionReady; await client.continueVerification(); panel?.reveal(); sendState(); post({ type: 'verificationComplete', loggedIn: client.auth.status === 'loggedIn' }); }
             catch (e) { error(e, true); }
             break;
           }

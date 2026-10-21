@@ -97,7 +97,7 @@
       const open = button('在 VS Code 内完成验证', () => { authMessage = ''; authActionPending = true; send({ type: 'verify' }); renderAuthDialog(); }); open.disabled = pending;
       const done = button('验证完成，继续', () => { authMessage = ''; authActionPending = true; send({ type: 'verified' }); renderAuthDialog(); }); done.disabled = pending;
       verify.append(open, done); dialog.append(verify);
-      dialog.append(make('p', 'comment', '需要验证码时，在 VS Code 网站页签中完成验证；也可在那里正常登录，然后返回继续。'));
+      dialog.append(make('p', 'comment', '需要验证码时，在独立的 VS Code 验证窗口中完成验证或登录，再返回继续。之后可手动最小化该窗口；请勿关闭，以保持阅读连接。'));
     }
     dialog.append(button('清除登录会话', () => { authActionPending = true; send({ type: 'logout' }); renderAuthDialog(); }));
     const close = button('关闭', () => { showLogin = false; dialog.close(); dialog.remove(); });
@@ -138,7 +138,7 @@
     } else state.shelf.forEach(book => home.append(bookRow(book, true)));
     const hint = make('div', 'hint');
     hint.append(make('p', '', '// 阅读快捷键：Alt+← / Alt+→ 切换章节，Esc 隐藏正文。'));
-    hint.append(make('p', '', '// 可在阅读器内登录；需要网站验证时，在 VS Code 网站页签中完成。'));
+    hint.append(make('p', '', '// 可在阅读器内登录；网站验证使用独立窗口，完成后可最小化。'));
     home.append(hint); app.append(home);
   }
   function bookRow(book, saved) {
