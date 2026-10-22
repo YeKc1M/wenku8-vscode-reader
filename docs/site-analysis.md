@@ -1,50 +1,35 @@
-# 文库吧登录与读取检查记录
+# 网站与自包含实现检查（2026-10-22）
 
-检查日期：2026-10-20。目标：让阅读器直接接收账号密码，并在需要网站验证时使用 VS Code 内置浏览器，不依赖外部 Chrome。
+最初通过 kimi-webbridge 调研网站 HTML 与请求；该工具只用于调研，**0.5.0 运行时不使用它，也不连接外部浏览器或中继服务**。
 
-## 实测协议
+## 协议与入口核查
 
-| 页面 / 流程 | 观察结果 |
-| --- | --- |
-| 登录页 | `https://www.wenku8.net/login.php`，GBK；可能先出现 Cloudflare 验证 |
-| 登录表单 | `POST /login.php?do=submit`；字段为 `username`、`password`、`usecookie`、隐藏字段 `action=login` 和提交按钮 `submit` |
-| 会话有效期 | `usecookie` 选项为 `0`、`86400`、`2592000`、`315360000`；插件选择 `2592000`，即一个月 |
-| 表单陷阱 | 隐藏字段 `name="action"` 会覆盖 DOM 的 `form.action` 属性，须读 HTML attribute，而非该 DOM property |
-| 受保护首页 | `/index.php` 用于确认会话；成功须识别本站 `/logout.php` 链接，不能仅凭 HTTP 200 或提交结果判定 |
-| 搜索 | `/so.php?searchtype=articlename&searchkey={GBK编码}&charset=gbk`，随后可能重定向到 `/modules/article/search.php` 或书籍详情；匿名访问要求登录 |
-| 书籍详情 | `/book/1.htm`，`#content table b` 为书名，单元格含 `小说作者：` |
-| 分卷目录 | `/novel/0/1/index.htm`，`#title` 为书名，`.vcss` 为分卷，`.ccss a` 为章节 |
-| 正文 | `/novel/0/1/2.htm`，`#title` 为标题，`#content` 内 `br` 分段；移除脚本、iframe 和 `#contentdp` 页尾提示 |
+- 主站为服务端 HTML，首页字符集为 GBK。直接 HTTPS 请求主站目录和 WAP，本次均遇到 Cloudflare 403；VS Code 自带 Chromium 内正常访问。
+- 搜索表单 POST `/so.php`，转到 GET `/modules/article/search.php?searchtype=articlename&searchkey=…`。实际关键字使用 GBK 字节百分号编码；「败北」为 `%B0%DC%B1%B1`。作者查询使用 `searchtype=author`。
+- 单条搜索命中会跳转 `/book/{id}.htm`；多条结果在 `#content`，翻页见 `#pagelink a.next`。实测站点要求两次搜索至少间隔五秒，错误页仍返回 HTTP 200；客户端串行间隔 5.2 秒并显示真实错误。
+- 目录路径 `/novel/{floor(id/1000)}/{id}/index.htm`，书名 `#title`、作者 `#info`，分卷 `td.vcss`、章节 `td.ccss a`，按 DOM 顺序关联。
+- 章节路径同目录，相对 `{chapterId}.htm`，正文位于 `#content`，标题位于 `#title`。移除重复的 `#contentdp` 宣传块、脚本和广告后提取纯文本。
+- 图片章节可能没有文字。本次图片域名包括 `pic.777743.xyz`；只允许实测的图片域名，按需在无脚本面板中加载。
+- 登录页 `/login.php`，表单 POST `/login.php?do=submit`，字段 `username`、`password`、`action=login`、`usecookie`。使用账号原有权限访问，密码不持久化。
+- 网站书架为 `/modules/article/bookcase.php?classid=0`，分组 0–5，书籍链接的 `aid` 是书籍 ID。导入不修改远端书架。
 
-目录的第一段为书籍 ID 千位分组。真实目录 ID 1《文学少女》解析得到 213 个章节。
+另核查历史 Android 接口 `app.wenku8.com/android.php`：本次 HTTP GET / POST 都仅返回 Welcome，HTTPS 主机证书不匹配；`app.wenku8.net` 未建立可用 TLS。没有把该入口做成可用 API，也没有关闭证书校验。[Android 项目](https://github.com/MewX/light-novel-library_Wenku8_Android) 当前公开 API 为 stub，真正模块单独维护；因此不依赖其第三方中继，也不宣称旧 API 稳定可用。
 
-## 验证与传输
+## 运行架构
 
-命令行直接请求登录页曾返回 Cloudflare 403。通过独立 VS Code 1.142.0 Extension Host 测试窗口，`editor-browser` 成功打开内置浏览器，经历网站安全检查后出现真实登录表单。已通过该会话中的同源 fetch 读取真实目录和正文；个别请求仍可能返回新的验证页，因此验证入口会导航到实际受阻的阅读 / 搜索地址（登录提交受阻时导航到登录页）。
+1. `network.ts` 用插件内的 fetch 直接请求网站。GBK 编解码、CookieJar、受限重定向、请求大小上限及超时均随插件打包。Cookie 使用 SecretStorage，密码仅用于本次请求。
+2. 遇到验证时明确提示用户执行内置验证，不悄悄启动外部程序。`session.ts` 通过 VS Code 自带 `editor-browser` 调试器创建内置浏览器，手动验证后维持同源网络会话。
+3. 点击验证完成后导航到同源无脚本资源，再替换成普通工具函数和 `session.ts` 标题。其底层仍是站点地址，原生地址栏不是插件控制的界面，不能声称网站地址彻底消失。连接页需保持打开。
+4. 插件请求通过同源 fetch 返回纯数据。CDP 拦截器在请求及重定向响应阶段检查地址，拒绝外域和远端书架删除等未允许操作；登录不自动重放。会话只用于取数，不将原站正文作为阅读 UI。
+5. `extension.ts` / `reader.ts` 用 [TextDocumentContentProvider](https://code.visualstudio.com/api/extension-guides/virtual-documents) 提供只读 `workspace.ts`，由原生编辑器负责语法高亮、行号、主题、查找和拆分。正文做 JSON 字符串转义。dark/light 切换实际运行验证；会话占位页同步切换浅色/深色。
+6. 隐藏递增请求版本，清理正文与所有拆分阅读标签、图片面板、书架条目；旧异步读取不能重新显示。窗口失焦默认触发隐藏。恢复是显式操作。
 
-标准 Webview iframe 无法承诺承载 Cloudflare 的整页验证：[Cloudflare 限制说明](https://developers.cloudflare.com/cloudflare-challenges/concepts/how-challenges-work/)。内置浏览器可作为独立编辑器页签显示，不需要外部 Chrome：[VS Code 内置浏览器文档](https://code.visualstudio.com/docs/debugtest/integrated-browser)。嵌入式浏览器仍可能被网站拒绝，不能保证所有网络都能通过。
+浏览器 API 本身仍属 proposed API，因此插件没有申请 proposed 权限；通过内置调试器建立的 CDP 代理及 `vscodeBrowserViewId` 是内部集成点，已在 VS Code 1.142.0 验证，但不能保证未来兼容。普通 HTML 前端不能独自消除服务器的 Cloudflare 验证要求。
 
-扩展使用稳定的 `vscode.debug.startDebugging` API 启动自身的 `editor-browser` 调试会话，通过其页面子会话的 `requestCDPProxy` 获取本机临时代理，再用 Node 内置 WebSocket 连接。此调试器专用请求并非稳定 VS Code 公共 API，因此最低版本固定为本机验证过的 1.142.0；不启用 proposed API，也不修改 VS Code 用户设置。关闭时仅停止扩展自己创建的调试会话。
+## 验证结果与边界
 
-验证页通过 `Target.getTargetInfo` 中 VS Code 添加的 `vscodeBrowserViewId` 定位，再以对应的 `vscode-browser` URI 调用移动编辑器命令，放到独立窗口。目标标识也是内部接口，缺失时明确报错，不回退为移动当前代码编辑器。最小化窗口保留同一浏览器及 CDP 会话；再次验证时将同一浏览器放入可见的独立窗口，原空窗口关闭，以避开普通焦点命令不能可靠恢复最小化窗口的限制。关闭验证窗口时停止本站会话，退出登录或停用扩展时同时关闭所属网站标签。Linux / VS Code 1.142 的隔离桌面测试覆盖最小化、模拟登录确认、搜索、目录、正文、再次显示、关闭重开及退出清理；未使用真实账号。
+- 单元测试：HTML 解析、GBK 关键字、恶意链接、Cookie 保存和恢复、外域重定向拦截、登录失败与不保存密码、GET / POST 注入脚本语法。
+- 真正的 VS Code Extension Host：原生 TypeScript 文档、dark/light 切换、滚动恢复、上下章、拆分编辑器隐藏、读取过程中隐藏后正文不恢复。
+- 真实内置浏览器：网站验证后，读取书籍 3057 的 234 个目录章节、正文及插图；账号登录、按书名搜索、结果翻页和网站书架读取成功；没有使用 Kimi 桥接或外部浏览器。主题占位页截图已检查。
 
-浏览器请求通过本机 CDP 进行同源 fetch，保留 GBK / UTF-8 解码、超时、8 MiB 大小限制及 Cookie。请求拦截在发送之前检查扩展请求及其重定向地址，拒绝外站和未允许的路径。网站正常页面加载及用户验证交互不套用阅读器请求白名单。
-
-## 凭据与会话
-
-直接请求使用 CookieJar，按域名、路径、Secure 和过期属性管理 Cookie；每个重定向响应先更新 Cookie，302 / 303 后清除 POST body。每次跳转都先检查 HTTPS 地址白名单。
-
-密码只用于当次 GBK 表单提交。登录消息不进入 Webview 重试动作或持久状态，UI 提交后清空密码；不会把密码放进调试控制台的 evaluate 请求，也不主动记录请求体。扩展不保存密码。
-
-直接请求的 Cookie 与传输选择保存在 VS Code SecretStorage。内置浏览器会话由 VS Code 自身的 `workbench.browser.dataStorage` 管理，插件不改变该设置，也不读取用户外部 Chrome 的任何会话。退出时取消旧请求、清空扩展会话及本站 Cookie，避免迟到响应重新恢复登录；浏览器清理失败会保存待清理标记并阻止继续使用。
-
-阅读器仅接收结构化数据，使用 textContent 创建 DOM，不执行网站 HTML 或脚本。保留 Webview CSP、阅读地址白名单及插图域名限制。
-
-## 验证范围
-
-- 单元测试：登录表单及隐藏字段、GBK 凭据与密码空格、Cookie 作用域和过期、重定向处理、200 假成功、验证页分类、会话恢复与失效、退出期间迟到响应、浏览器请求取消、跨域重定向拦截，以及原有目录 / 正文 / 搜索解析。
-- 真实 Extension Host：扩展激活、新登录 / 退出命令注册、旧 Chrome 命令移除、面板生命周期。
-- 真实内置浏览器界面（虚构账号及模拟服务器响应）：登录失败提示、登录成功状态、密码清空且不进入 UI 存储、验证返回流程、隐藏与恢复正文；已检查登录窗口截图。
-- 真实网站：Cloudflare 后的登录表单、会话中的目录与正文请求。
-
-尚未实测有效账号登录、登录后搜索布局、跨重启有效账号恢复、所有书籍变体和非 macOS 平台。自动化测试中的登录成功使用模拟响应，不能替代真实账号验收。
+不保存完整小说或账号页面到测试工件。站点验证和会话有效期受网络、网站及 VS Code 存储策略影响；本次成功不表示免验证保证。代码外观与快捷隐藏也不是操作系统级防观察机制。

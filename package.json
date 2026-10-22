@@ -1,8 +1,8 @@
 {
   "name": "wenku8-vscode-reader",
-  "displayName": "Wenku8 · Code Reader",
-  "description": "在编辑区用代码风格阅读文库吧轻小说，自动跟随 VS Code 主题。",
-  "version": "0.2.0",
+  "displayName": "Workspace Notes · Wenku8",
+  "description": "在原生只读代码编辑器中阅读轻小说，支持书架、搜索、进度与快捷隐藏。",
+  "version": "0.5.0",
   "publisher": "local-reader",
   "license": "MIT",
   "engines": {
@@ -12,11 +12,15 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
   "activationEvents": [],
   "scripts": {
-    "compile": "tsc -p .",
+    "compile": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p .",
     "watch": "tsc -w -p .",
     "test": "npm run compile && node --test test/*.test.cjs",
+    "test:live": "npm run compile && node scripts/live-smoke.cjs",
     "package": "vsce package --allow-missing-repository",
     "vscode:prepublish": "npm run compile"
   },
@@ -24,11 +28,39 @@
     "commands": [
       {
         "command": "wenku8.open",
-        "title": "Wenku8: 打开阅读器"
+        "title": "Wenku8: 打开 / 恢复阅读"
       },
       {
         "command": "wenku8.addBook",
         "title": "Wenku8: 添加书籍链接或 ID"
+      },
+      {
+        "command": "wenku8.readBook",
+        "title": "Wenku8: 阅读书籍"
+      },
+      {
+        "command": "wenku8.search",
+        "title": "Wenku8: 搜索书名或作者"
+      },
+      {
+        "command": "wenku8.importShelf",
+        "title": "Wenku8: 导入网站书架"
+      },
+      {
+        "command": "wenku8.catalog",
+        "title": "Wenku8: 选择分卷 / 章节"
+      },
+      {
+        "command": "wenku8.next",
+        "title": "Wenku8: 下一章"
+      },
+      {
+        "command": "wenku8.previous",
+        "title": "Wenku8: 上一章"
+      },
+      {
+        "command": "wenku8.hide",
+        "title": "Workspace Notes: 隐藏"
       },
       {
         "command": "wenku8.login",
@@ -39,39 +71,104 @@
         "title": "Wenku8: 退出登录"
       },
       {
-        "command": "wenku8.hide",
-        "title": "Wenku8: 隐藏正文"
+        "command": "wenku8.images",
+        "title": "Wenku8: 查看本章插图"
+      },
+      {
+        "command": "wenku8.refresh",
+        "title": "Wenku8: 刷新目录和章节"
+      },
+      {
+        "command": "wenku8.removeBook",
+        "title": "Wenku8: 从本地书架移除"
+      },
+      {
+        "command": "wenku8.verify",
+        "title": "Wenku8: 在 VS Code 内验证"
+      },
+      {
+        "command": "wenku8.verified",
+        "title": "Wenku8: 验证完成"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "wenku8.notes",
+          "name": "Workspace Notes",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "wenku8.notes",
+        "contents": "[打开笔记](command:wenku8.open)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wenku8.open",
+          "when": "view == wenku8.notes",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "wenku8.removeBook",
+          "when": "view == wenku8.notes && viewItem == wenku8.book"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "wenku8.readBook",
+          "when": "false"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "wenku8.hide",
         "key": "ctrl+alt+h",
-        "mac": "cmd+alt+h",
-        "when": "activeWebviewPanelId == 'wenku8.reader'"
+        "mac": "cmd+alt+h"
+      },
+      {
+        "command": "wenku8.hide",
+        "key": "escape",
+        "when": "resourceScheme == workspace-notes && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !editorHasSelection"
+      },
+      {
+        "command": "wenku8.next",
+        "key": "alt+right",
+        "when": "resourceScheme == workspace-notes && editorTextFocus"
+      },
+      {
+        "command": "wenku8.previous",
+        "key": "alt+left",
+        "when": "resourceScheme == workspace-notes && editorTextFocus"
+      },
+      {
+        "command": "wenku8.catalog",
+        "key": "ctrl+alt+j",
+        "mac": "cmd+alt+j",
+        "when": "resourceScheme == workspace-notes && editorTextFocus"
       }
     ],
     "configuration": {
-      "title": "Wenku8 Reader",
+      "title": "Workspace Notes",
       "properties": {
-        "wenku8.fontSize": {
-          "type": "number",
-          "default": 14,
-          "minimum": 10,
-          "maximum": 28,
-          "description": "阅读字号。"
-        },
-        "wenku8.lineHeight": {
-          "type": "number",
-          "default": 1.9,
-          "minimum": 1.2,
-          "maximum": 3,
-          "description": "阅读行高。"
-        },
-        "wenku8.showImages": {
+        "wenku8.hideOnBlur": {
           "type": "boolean",
-          "default": false,
-          "description": "显示章节插图（默认隐藏以保持代码外观）。"
+          "default": true,
+          "description": "VS Code 窗口失去焦点时隐藏正文；需要手动恢复。"
+        },
+        "wenku8.wrapColumn": {
+          "type": "number",
+          "default": 52,
+          "minimum": 20,
+          "maximum": 120,
+          "description": "代码字符串每行最多的 Unicode 字符数，下次打开章节生效。字号与行高使用编辑器设置。"
         }
       }
     }
@@ -86,8 +183,5 @@
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.7.0"
-  },
-  "extensionKind": [
-    "ui"
-  ]
+  }
 }
